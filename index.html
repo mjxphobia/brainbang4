@@ -216,9 +216,10 @@ function setTimerDisplay(sec){
 /*********************************************************
  * ✅ 여러 기기 동시 실행 시, "좀비 등장 겹침 방지" 스케줄
  *********************************************************/
-const CYCLE_MS = 60000;  // 60초 사이클
-const SLOT_MS  = 12000;  // 등장 가능한 구간(12초)
-const GUARD_MS = 3000;   // 구간 앞뒤 안전 간격(3초)
+const CYCLE_MS = 80000;
+const SLOT_MS  = 15000;
+const GUARD_MS = 5000;
+
 
 /* page4 = 4 */
 const PAGE_ID = 4;
@@ -311,7 +312,7 @@ function startPuzzle(){
   answerInput.value = "";
   answerInput.focus();
 
-  let left = 15;
+  let left = 20;
   setTimerDisplay(left);
 
   countdownId = setInterval(() => {
