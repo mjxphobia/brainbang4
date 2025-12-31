@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ZOMBIE CITY4</title>
+
+<style>
+body{
+  margin:0;
+  background:#ffffff;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.wrap{
+  width:100%;
+  text-align:center;
+}
+
+/* 제목 */
+.title{
+  font-size:22px;
+  font-weight:700;
+  margin:20px 0 12px;
+}
+
+/* 카드 */
+.card{
+  width:1024px;
+  height:768px;
+  max-width:92vw;
+  margin:0 auto;
+  border:2px solid #111;
+  position:relative;
+  overflow:hidden;
+  background:#fff;
+}
+
+/* 레이어 */
+.layer{
+  position:absolute;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+#cityImg{
+  height:100%;
+  width:auto;
+  position:absolute;
+  left:50%;
+  transform:translateX(-50%);
+  user-select:none;
+  -webkit-user-drag:none;
+  pointer-events:none;
+}
+
+#zombieImg,#puzzleImg{
+  width:100%;
+  height:100%;
+  object-fit:contain;
+  display:none;
+  user-select:none;
+  -webkit-user-drag:none;
+  pointer-events:none;
+}
+
+/* UI */
+.ui{
+  width:1024px;
+  max-width:92vw;
+  margin:12px auto 0;
+}
+
+.timer{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size:48px;
+  display:none;
+  letter-spacing:2px;
+}
+
+.answerRow{
+  display:none;
+  margin-top:8px;
+}
+
+input{
+  border:2px solid #111;
+  padding:12px;
+  font-size:18px;
+  width:260px;
+  text-align:center;
+  box-sizing:border-box;
+}
+
+.controls{
+  width:1024px;
+  max-width:92vw;
+  margin:16px auto;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+
+button{
+  border:2px solid #111;
+  background:#fff;
+  padding:12px;
+  font-size:16px;
+  cursor:pointer;
+  box-sizing:border-box;
+}
+button:active{ transform: translateY(1px); }
+</style>
+</head>
+
+<body>
+<div class="wrap">
+
+  <div class="title">ZOMBIE CITY4</div>
+
+  <div class="card">
+    <!-- city -->
+    <div class="layer"><img id="cityImg" src=""></div>
+    <!-- zombie overlay -->
+    <div class="layer"><img id="zombieImg" src=""></div>
+    <!-- puzzle overlay -->
+    <div class="layer"><img id="puzzleImg" src=""></div>
+  </div>
+
+  <div class="ui">
+    <div id="timer" class="timer">15</div>
+    <div id="answerRow" class="answerRow">
+      <input id="answerInput" placeholder="ANSWER" autocomplete="off" spellcheck="false">
+      <div>ENTER 누르기</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button onclick="location.reload()">다시 시작</button>
+    <button onclick="location.href='index.html'">메뉴</button>
+  </div>
+
+</div>
+
+<script>
+/*********************************************************
+ * ✅ 파일 목록
+ *********************************************************/
+const cityImages = Array.from({length:5},(_,i)=>`static/city${i+1}.png`);
+const zombieImages = Array.from({length:5},(_,i)=>`static/zombie${i+1}.png`);
+
+/*********************************************************
+ * ✅ 퍼즐(4-n 구조): 여기만 추가/수정하면 됨
+ * - puzzle4-1.png, puzzle4-2.png, puzzle4-3.png ... 형태
+ *********************************************************/
+const puzzles = [
+  { img:"static/puzzle4-1.png", answer:"4" },
+  { img:"static/puzzle4-2.png", answer:"SAFE" },
+  { img:"static/puzzle4-3.png", answer:"푶픂" }
+];
+
+/*********************************************************
+ * ✅ 요소
+ *********************************************************/
+const cityImg = document.getElementById("cityImg");
+const zombieImg = document.getElementById("zombieImg");
+const puzzleImg = document.getElementById("puzzleImg");
+const timerEl = document.getElementById("timer");
+const answerRow = document.getElementById("answerRow");
+const answerInput = document.getElementById("answerInput");
+
+/*********************************************************
+ * ✅ 상태
+ *********************************************************/
+let puzzleIndex = 0;
+let cityMove = true;
+let rafId = null;
+let countdownId = null;
+let zombieTimeoutId = null;
+let overlayTimeoutId = null;
+let phase = "CITY"; // CITY | ZOMBIE | PUZZLE | RESULT
+
+/*********************************************************
+ * ✅ 유틸
+ *********************************************************/
+const rand = arr => arr[Math.floor(Math.random()*arr.length)];
+
+function resetUI(){
+  zombieImg.style.display = "none";
+  puzzleImg.style.display = "none";
+  timerEl.style.display = "none";
+  answerRow.style.display = "none";
+  answerInput.value = "";
+}
+
+function stopAllTimers(){
+  if(rafId) cancelAnimationFrame(rafId);
+  rafId = null;
+
+  if(countdownId) clearInterval(countdownId);
+  countdownId = null;
+
+  if(zombieTimeoutId) clearTimeout(zombieTimeoutId);
+  zombieTimeoutId = null;
+
+  if(overlayTimeoutId) clearTimeout(overlayTimeoutId);
+  overlayTimeoutId = null;
+}
+
+function setTimerDisplay(sec){
+  timerEl.textContent = String(sec).padStart(2,"0");
+}
+
+/*********************************************************
+ * ✅ 여러 기기 동시 실행 시, "좀비 등장 겹침 방지" 스케줄
+ *********************************************************/
+const CYCLE_MS = 60000;  // 60초 사이클
+const SLOT_MS  = 12000;  // 등장 가능한 구간(12초)
+const GUARD_MS = 3000;   // 구간 앞뒤 안전 간격(3초)
+
+/* page4 = 4 */
+const PAGE_ID = 4;
+const SLOT_START_MS = (PAGE_ID - 1) * (SLOT_MS + GUARD_MS); // page4=45000ms
+
+function seededRandom01(cycleIndex, pageId){
+  let x = (cycleIndex + 1) * 1103515245 + pageId * 12345;
+  x = (x ^ (x >>> 16)) >>> 0;
+  return (x % 100000) / 100000;
+}
+
+function scheduleZombieNoOverlap(){
+  if(phase !== "CITY") return;
+
+  const now = Date.now();
+  const cycleIndex = Math.floor(now / CYCLE_MS);
+  const inCycle = now % CYCLE_MS;
+
+  const r = seededRandom01(cycleIndex, PAGE_ID);
+  const targetInCycle =
+    SLOT_START_MS + GUARD_MS + r * (SLOT_MS - GUARD_MS * 2);
+
+  let wait = targetInCycle - inCycle;
+  if(wait < 0) wait += CYCLE_MS;
+
+  zombieTimeoutId = setTimeout(() => {
+    if(phase === "CITY") showZombie();
+  }, wait);
+}
+
+/*********************************************************
+ * ✅ CITY 시작/재시작
+ *********************************************************/
+function startCity(){
+  stopAllTimers();
+  resetUI();
+
+  phase = "CITY";
+  cityMove = true;
+
+  cityImg.src = rand(cityImages);
+
+  const t0 = performance.now();
+  function tick(t){
+    if(!cityMove || phase !== "CITY") return;
+    const x = Math.sin((t - t0)/1000 * 0.6) * 30;
+    cityImg.style.transform = `translateX(calc(-50% + ${x}px)) scale(1.1)`;
+    rafId = requestAnimationFrame(tick);
+  }
+  rafId = requestAnimationFrame(tick);
+
+  scheduleZombieNoOverlap();
+}
+
+/*********************************************************
+ * ✅ ZOMBIE 등장
+ *********************************************************/
+function showZombie(){
+  if(phase !== "CITY") return;
+
+  phase = "ZOMBIE";
+  cityMove = false;
+  if(rafId) cancelAnimationFrame(rafId);
+  rafId = null;
+
+  zombieImg.src = rand(zombieImages);
+  zombieImg.style.display = "block";
+
+  overlayTimeoutId = setTimeout(() => {
+    startPuzzle();
+  }, 2000);
+}
+
+/*********************************************************
+ * ✅ PUZZLE
+ *********************************************************/
+function startPuzzle(){
+  if(phase !== "ZOMBIE") return;
+
+  if(puzzleIndex >= puzzles.length) puzzleIndex = 0;
+
+  phase = "PUZZLE";
+  const p = puzzles[puzzleIndex];
+
+  puzzleImg.src = p.img;
+  puzzleImg.style.display = "block";
+
+  timerEl.style.display = "block";
+  answerRow.style.display = "block";
+  answerInput.value = "";
+  answerInput.focus();
+
+  let left = 15;
+  setTimerDisplay(left);
+
+  countdownId = setInterval(() => {
+    left -= 1;
+    setTimerDisplay(Math.max(0,left));
+    if(left <= 0){
+      clearInterval(countdownId);
+      countdownId = null;
+      fail();
+    }
+  }, 1000);
+}
+
+/*********************************************************
+ * ✅ 결과 처리
+ *********************************************************/
+function success(){
+  if(phase !== "PUZZLE") return;
+
+  phase = "RESULT";
+  if(countdownId) clearInterval(countdownId);
+  countdownId = null;
+
+  timerEl.style.display = "none";
+  answerRow.style.display = "none";
+
+  puzzleImg.src = "static/success.png";
+  puzzleIndex += 1;
+
+  overlayTimeoutId = setTimeout(() => {
+    startCity();
+  }, 3000);
+}
+
+function fail(){
+  if(phase !== "PUZZLE") return;
+
+  phase = "RESULT";
+  if(countdownId) clearInterval(countdownId);
+  countdownId = null;
+
+  timerEl.style.display = "none";
+  answerRow.style.display = "none";
+
+  puzzleImg.src = "static/fail.png";
+  puzzleIndex += 1;
+
+  overlayTimeoutId = setTimeout(() => {
+    startCity();
+  }, 3000);
+}
+
+/*********************************************************
+ * ✅ 입력 처리
+ *********************************************************/
+answerInput.addEventListener("input", () => {
+  answerInput.value = (answerInput.value || "").toUpperCase();
+});
+
+answerInput.addEventListener("keydown", (e) => {
+  if(e.key === "Enter"){
+    e.preventDefault();
+    if(phase !== "PUZZLE") return;
+
+    const p = puzzles[puzzleIndex] || null;
+    const user = (answerInput.value || "").trim().toUpperCase();
+
+    if(!p || user !== p.answer){
+      fail();
+    } else {
+      success();
+    }
+  }
+});
+
+/*********************************************************
+ * ✅ 시작
+ *********************************************************/
+startCity();
+</script>
+</body>
+</html>
