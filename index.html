@@ -135,6 +135,7 @@ button:active{ transform: translateY(1px); }
   <audio id="groan"></audio>
   <!-- ✅ 실패 사운드 -->
   <audio id="scratch" src="static/scratch.mp3" preload="auto"></audio>
+  <audio id="gunshot" src="static/gunshot.mp3" preload="auto"></audio>
 
 </div>
 
@@ -163,6 +164,8 @@ const answerInput = document.getElementById("answerInput");
 
 const groanEl = document.getElementById("groan");
 const scratchEl = document.getElementById("scratch");
+const gunshot = document.getElementById("gunshot");
+
 
 /* ---------- 유틸 ---------- */
 const rand = arr => arr[Math.floor(Math.random()*arr.length)];
@@ -232,6 +235,7 @@ function startCity(){
   if(!audioReady){
     warmUp(groanEl, groanSounds[0]);
     warmUp(scratchEl, "static/scratch.mp3");
+    warmUp(gunshot, "static/gunshot.mp3");
     audioReady = true;
   }
 
@@ -295,6 +299,7 @@ function success(){
   phase = "RESULT";
   clearInterval(countdownId);
   puzzleImg.src = "static/success.png";
+  playSound(gunshot);
   puzzleIndex++;
   setTimeout(startCity,3000);
 }
