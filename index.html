@@ -151,7 +151,8 @@ const groanSounds = Array.from({length:9},(_,i)=>`static/groan${i+1}.mp3`);
 const puzzles = [
   { img:"static/puzzle4-1.png", answer:"4" },
   { img:"static/puzzle4-2.png", answer:"SAFE" },
-  { img:"static/puzzle4-3.png", answer:"픂푶" }
+  { img:"static/puzzle4-3.png", answer:"픂푶" },
+  { img:"static/puzzle4-4.png", answer:"7" },
 ];
 
 /* ---------- 요소 ---------- */
@@ -165,7 +166,6 @@ const answerInput = document.getElementById("answerInput");
 const groanEl = document.getElementById("groan");
 const scratchEl = document.getElementById("scratch");
 const gunshot = document.getElementById("gunshot");
-
 
 /* ---------- 유틸 ---------- */
 const rand = arr => arr[Math.floor(Math.random()*arr.length)];
@@ -197,14 +197,38 @@ let rafId = null;
 let countdownId = null;
 let audioReady = false;
 
-/* ---------- 타이밍 (랜덤 겹침 방지 구조 유지) ---------- */
+/* =========================================================
+ * ✅ 타이밍(사이클/슬롯)만 수정한 부분 시작
+ * - 매 사이클마다 4개의 슬롯 순서를 섞어서(perm) 등장 순서를 바꿈
+ * - 4페이지 모두 같은 코드 사용 + PAGE_ID만 1~4로 다르게
+ * ========================================================= */
 const CYCLE_MS = 80000;
 const SLOT_MS  = 15000;
 const GUARD_MS = 5000;
-const PAGE_ID = 4;
-const SLOT_START_MS = (PAGE_ID - 1) * (SLOT_MS + GUARD_MS);
+const PAGE_ID = 4; // page1=1, page2=2, page3=3, page4=4 로만 바꿔서 사용
+
+function makePermutation4(cycleIndex){
+  // cycleIndex(현재 사이클 번호)에 따라 [0,1,2,3] 순서를 매번 섞음
+  let a = [0,1,2,3];
+
+  // seeded shuffle (모든 기기가 같은 cycleIndex면 같은 순서를 만든다)
+  let seed = ((cycleIndex + 1) * 2654435761) >>> 0;
+  for(let i = a.length - 1; i > 0; i--){
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    const j = seed % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function getMySlotIndex(cycleIndex){
+  // perm 안에서 (PAGE_ID-1)이 몇 번째로 배치됐는지 = 내가 차지할 슬롯 번호(0~3)
+  const perm = makePermutation4(cycleIndex);
+  return perm.indexOf(PAGE_ID - 1);
+}
 
 function seededRandom01(cycleIndex){
+  // 내 슬롯 안에서 "어느 시점에 뜰지" 랜덤(항상 같은 cycleIndex면 같은 결과)
   let x = (cycleIndex + 1) * 1103515245 + PAGE_ID * 12345;
   x ^= x >>> 16;
   return (x >>> 0) / 4294967295;
@@ -212,17 +236,28 @@ function seededRandom01(cycleIndex){
 
 function scheduleZombie(){
   if(phase !== "CITY") return;
+
   const now = Date.now();
   const cycle = Math.floor(now / CYCLE_MS);
   const inCycle = now % CYCLE_MS;
 
+  // ✅ 이번 사이클에서 내가 쓰는 슬롯(0~3)이 매번 바뀜
+  const mySlot = getMySlotIndex(cycle);
+
+  // ✅ 이번 사이클에서 내 슬롯 시작 위치(고정 값이 아니라 cycle마다 달라짐)
+  const SLOT_START_MS = mySlot * (SLOT_MS + GUARD_MS);
+
   const r = seededRandom01(cycle);
-  const target = SLOT_START_MS + GUARD_MS + r * (SLOT_MS - GUARD_MS*2);
+  const target = SLOT_START_MS + GUARD_MS + r * (SLOT_MS - GUARD_MS * 2);
+
   let wait = target - inCycle;
   if(wait < 0) wait += CYCLE_MS;
 
   setTimeout(()=>{ if(phase==="CITY") showZombie(); }, wait);
 }
+/* =========================================================
+ * ✅ 타이밍(사이클/슬롯)만 수정한 부분 끝
+ * ========================================================= */
 
 /* ---------- CITY ---------- */
 function startCity(){
@@ -299,7 +334,7 @@ function success(){
   phase = "RESULT";
   clearInterval(countdownId);
   puzzleImg.src = "static/success.png";
-  playSound(gunshot);
+  playSound(gunshot);    // ✅ 성공 효과음
   puzzleIndex++;
   setTimeout(startCity,3000);
 }
@@ -330,4 +365,3 @@ startCity();
 </script>
 </body>
 </html>
-
