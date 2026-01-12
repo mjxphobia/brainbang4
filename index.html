@@ -12,18 +12,15 @@ body{
   font-family: Arial, Helvetica, sans-serif;
   color:#111;
 }
-
-.wrap{
-  width:100%;
-  text-align:center;
-}
+.wrap{ width:100%; text-align:center; }
 
 .title{
   font-size:22px;
   font-weight:700;
-  margin:20px 0 12px;
+  margin:18px 0 10px;
 }
 
+/* ✅ 카드 */
 .card{
   width:1024px;
   height:768px;
@@ -34,7 +31,6 @@ body{
   overflow:hidden;
   background:#fff;
 }
-
 .layer{
   position:absolute;
   inset:0;
@@ -43,6 +39,7 @@ body{
   justify-content:center;
 }
 
+/* ✅ city 흔들림 */
 #cityImg{
   height:100%;
   width:auto;
@@ -53,6 +50,7 @@ body{
   pointer-events:none;
 }
 
+/* ✅ overlays */
 #zombieImg,#puzzleImg{
   width:100%;
   height:100%;
@@ -62,23 +60,21 @@ body{
   pointer-events:none;
 }
 
+/* ✅ 퍼즐 UI */
 .ui{
   width:1024px;
   max-width:92vw;
-  margin:12px auto 0;
+  margin:10px auto 0;
 }
-
 .timer{
   font-family: ui-monospace, monospace;
   font-size:48px;
   display:none;
 }
-
 .answerRow{
   display:none;
   margin-top:8px;
 }
-
 input{
   border:2px solid #111;
   padding:12px;
@@ -87,12 +83,43 @@ input{
   text-align:center;
 }
 
+/* ✅ 상단 컨트롤: [다시시작] [02:00 + 밤/낮] [▶/II][>>][<<] */
 .controls{
   width:1024px;
   max-width:92vw;
-  margin:16px auto;
+  margin:14px auto 10px;
   display:grid;
-  grid-template-columns:1fr 1fr;
+  grid-template-columns: 1fr auto auto;
+  gap:10px;
+  align-items:center;
+}
+.ctrlLeft{
+  display:flex;
+  justify-content:flex-start;
+}
+.ctrlMid{
+  display:flex;
+  justify-content:center;
+  gap:12px;
+  align-items:center;
+  border:2px solid #111;
+  padding:10px 12px;
+  box-sizing:border-box;
+}
+#cycleClock{
+  font-family: ui-monospace, monospace;
+  font-size:22px;
+  letter-spacing:1px;
+  min-width:72px;
+}
+#cycleLabel{
+  font-weight:700;
+  font-size:18px;
+  min-width:36px;
+}
+.ctrlRight{
+  display:flex;
+  justify-content:flex-end;
   gap:10px;
 }
 
@@ -104,6 +131,15 @@ button{
   cursor:pointer;
 }
 button:active{ transform: translateY(1px); }
+
+.note{
+  width:1024px;
+  max-width:92vw;
+  margin:0 auto 14px;
+  font-size:12px;
+  opacity:0.75;
+  text-align:left;
+}
 </style>
 </head>
 
@@ -112,6 +148,23 @@ button:active{ transform: translateY(1px); }
 
   <div class="title">ZOMBIE CITY4</div>
 
+  <div class="controls">
+    <div class="ctrlLeft">
+      <button onclick="show('restart')">다시 시작</button>
+    </div>
+
+    <div class="ctrlMid">
+      <div id="cycleClock">02:00</div>
+      <div id="cycleLabel">밤</div>
+    </div>
+
+    <div class="ctrlRight">
+      <button onclick="show('toggle')">▶/ II</button>
+      <button onclick="show('ff')">앞으로 빨리감기</button>
+      <button onclick="show('rew')">뒤로 빨리감기</button>
+    </div>
+  </div>
+
   <div class="card">
     <div class="layer"><img id="cityImg"></div>
     <div class="layer"><img id="zombieImg"></div>
@@ -119,43 +172,55 @@ button:active{ transform: translateY(1px); }
   </div>
 
   <div class="ui">
-    <div id="timer" class="timer">15</div>
+    <div id="timer" class="timer">20</div>
     <div id="answerRow" class="answerRow">
-      <input id="answerInput" placeholder="ANSWER">
+      <input id="answerInput"
+             placeholder="ANSWER"
+             autocomplete="off"
+             autocapitalize="characters"
+             autocorrect="off"
+             spellcheck="false"
+             inputmode="latin"
+             lang="en">
       <div>ENTER 누르기</div>
     </div>
   </div>
 
-  <div class="controls">
-    <button onclick="location.reload()">다시 시작</button>
-    <button onclick="location.href='index.html'">메뉴</button>
+  <div class="note">
+    * 밤(진행) 2분 ↔ 낮(정지) 2분 반복. 낮 전환 순간 퍼즐/좀비가 떠 있어도 CITY(낮 배경)로 강제 복귀.
   </div>
 
-  <!-- ✅ 랜덤 좀비 그로울 사운드 -->
+  <!-- 오디오 -->
   <audio id="groan"></audio>
-  <!-- ✅ 실패 사운드 -->
   <audio id="scratch" src="static/scratch.mp3" preload="auto"></audio>
   <audio id="gunshot" src="static/gunshot.mp3" preload="auto"></audio>
 
 </div>
 
 <script>
-/* ---------- 이미지 ---------- */
-const cityImages   = Array.from({length:5},(_,i)=>`static/city${i+1}.png`);
+/* =========================================================
+   리소스
+   ========================================================= */
+const cityNightImages = Array.from({length:5},(_,i)=>`static/city${i+1}.png`);
+const cityDayImages   = Array.from({length:5},(_,i)=>`static/city-day${i+1}.png`);
+
 const zombieImages = Array.from({length:5},(_,i)=>`static/zombie${i+1}.png`);
+const groanSounds  = Array.from({length:9},(_,i)=>`static/groan${i+1}.mp3`);
 
-/* ---------- 사운드 ---------- */
-const groanSounds = Array.from({length:9},(_,i)=>`static/groan${i+1}.mp3`);
-
-/* ---------- 퍼즐 ---------- */
 const puzzles = [
-  { img:"static/puzzle4-1.png", answer:"4" },
-  { img:"static/puzzle4-2.png", answer:"SAFE" },
-  { img:"static/puzzle4-3.png", answer:"픂푶" },
-  { img:"static/puzzle4-4.png", answer:"7" },
+  { img:"static/puzzle4-1.png", answer:"1919"},
+  { img:"static/puzzle4-2.png", answer:"3" },
+  { img:"static/puzzle4-3.png", answer:"호화구의술법" },
+  { img:"static/puzzle4-4.png", answer:"HOT" },
+  { img:"static/puzzle4-5.png", answer:"410" },
+  { img:"static/puzzle4-6.png", answer:"자동차" },
+  { img:"static/puzzle4-7.png", answer:"BITE" }
 ];
 
-/* ---------- 요소 ---------- */
+
+/* =========================================================
+   DOM
+   ========================================================= */
 const cityImg = document.getElementById("cityImg");
 const zombieImg = document.getElementById("zombieImg");
 const puzzleImg = document.getElementById("puzzleImg");
@@ -165,53 +230,101 @@ const answerInput = document.getElementById("answerInput");
 
 const groanEl = document.getElementById("groan");
 const scratchEl = document.getElementById("scratch");
-const gunshot = document.getElementById("gunshot");
+const gunshotEl = document.getElementById("gunshot");
 
-/* ---------- 유틸 ---------- */
+const cycleClockEl = document.getElementById("cycleClock");
+const cycleLabelEl = document.getElementById("cycleLabel");
+
+/* =========================================================
+   유틸
+   ========================================================= */
 const rand = arr => arr[Math.floor(Math.random()*arr.length)];
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 
 function playSound(el, src){
   try{
     if(src) el.src = src;
     el.pause();
     el.currentTime = 0;
-    el.play();
+    const p = el.play();
+    if(p && p.catch) p.catch(()=>{});
   }catch(e){}
 }
-
 function warmUp(el, src){
   try{
-    el.src = src;
+    if(src) el.src = src;
     el.muted = true;
-    el.play();
+    const p = el.play();
+    if(p && p.catch) p.catch(()=>{});
     el.pause();
     el.currentTime = 0;
     el.muted = false;
   }catch(e){}
 }
+function pad2(n){ return String(n).padStart(2,'0'); }
 
-/* ---------- 상태 ---------- */
-let puzzleIndex = 0;
-let phase = "CITY";
-let rafId = null;
-let countdownId = null;
-let audioReady = false;
+/* 한글 자모로 들어와도 영어로 자동 변환(검사용 보너스) */
+function ko2enQwerty(s){
+  const map = {
+    'ㅂ':'q','ㅈ':'w','ㄷ':'e','ㄱ':'r','ㅅ':'t','ㅛ':'y','ㅕ':'u','ㅑ':'i','ㅐ':'o','ㅔ':'p',
+    'ㅁ':'a','ㄴ':'s','ㅇ':'d','ㄹ':'f','ㅎ':'g','ㅗ':'h','ㅓ':'j','ㅏ':'k','ㅣ':'l',
+    'ㅋ':'z','ㅌ':'x','ㅊ':'c','ㅍ':'v','ㅠ':'b','ㅜ':'n','ㅡ':'m'
+  };
+  return (s||"").split("").map(ch => map[ch] ?? ch).join("");
+}
 
 /* =========================================================
- * ✅ 타이밍(사이클/슬롯)만 수정한 부분 시작
- * - 매 사이클마다 4개의 슬롯 순서를 섞어서(perm) 등장 순서를 바꿈
- * - 4페이지 모두 같은 코드 사용 + PAGE_ID만 1~4로 다르게
- * ========================================================= */
+   게임 상태
+   ========================================================= */
+let phase = "CITY";           // CITY | ZOMBIE | PUZZLE | RESULT
+let puzzleIndex = 0;
+
+let cityRafId = null;
+let cityT0 = 0;
+
+let zombiePendingAt = null;   // (게임시간 기준) 좀비 등장 예약
+let zombieShownAt = null;     // 좀비 표시 시작
+let puzzleShownAt = null;     // 퍼즐 표시 시작
+
+let puzzleLeftMs = 0;
+const PUZZLE_LIMIT_MS = 20000;
+
+let resultUntilMs = null;
+
+/* =========================================================
+   2분 밤/낮 사이클 + 빨리감기/되감기
+   ========================================================= */
+let running = false;
+let timeScale = 1;      // 1, 10, -10
+let lastPerfTs = 0;
+let gameNowMs = 0;
+
+const CYCLE_LEN_MS = 120000;  // 2분
+let cycleRemainingMs = CYCLE_LEN_MS;
+let cycleMode = "NIGHT";      // NIGHT(진행) / DAY(정지)
+
+function isGameActive(){
+  return running && cycleMode === "NIGHT" && timeScale !== 0;
+}
+
+function updateCycleUI(){
+  const sec = Math.ceil(cycleRemainingMs / 1000);
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  cycleClockEl.textContent = `${pad2(m)}:${pad2(s)}`;
+  cycleLabelEl.textContent = (cycleMode === "NIGHT") ? "밤" : "낮";
+}
+
+/* =========================================================
+   슬롯/사이클(겹침 방지) + 순서 섞기
+   ========================================================= */
 const CYCLE_MS = 80000;
 const SLOT_MS  = 15000;
 const GUARD_MS = 5000;
-const PAGE_ID = 4; // page1=1, page2=2, page3=3, page4=4 로만 바꿔서 사용
+const PAGE_ID = 4;
 
 function makePermutation4(cycleIndex){
-  // cycleIndex(현재 사이클 번호)에 따라 [0,1,2,3] 순서를 매번 섞음
   let a = [0,1,2,3];
-
-  // seeded shuffle (모든 기기가 같은 cycleIndex면 같은 순서를 만든다)
   let seed = ((cycleIndex + 1) * 2654435761) >>> 0;
   for(let i = a.length - 1; i > 0; i--){
     seed = (seed * 1664525 + 1013904223) >>> 0;
@@ -220,148 +333,529 @@ function makePermutation4(cycleIndex){
   }
   return a;
 }
-
 function getMySlotIndex(cycleIndex){
-  // perm 안에서 (PAGE_ID-1)이 몇 번째로 배치됐는지 = 내가 차지할 슬롯 번호(0~3)
   const perm = makePermutation4(cycleIndex);
   return perm.indexOf(PAGE_ID - 1);
 }
-
 function seededRandom01(cycleIndex){
-  // 내 슬롯 안에서 "어느 시점에 뜰지" 랜덤(항상 같은 cycleIndex면 같은 결과)
   let x = (cycleIndex + 1) * 1103515245 + PAGE_ID * 12345;
   x ^= x >>> 16;
   return (x >>> 0) / 4294967295;
 }
 
-function scheduleZombie(){
-  if(phase !== "CITY") return;
+/* =========================================================
+   퍼즐 solved 스킵(전부 맞추면 초기화 후 순환)
+   ========================================================= */
+function nextUnsolvedIndex(from){
+  for(let k=0; k<puzzles.length; k++){
+    const i = (from + k) % puzzles.length;
+    if(!puzzles[i].solved) return i;
+  }
+  return -1;
+}
+function resetSolvedAll(){
+  puzzles.forEach(p => p.solved = false);
+}
 
-  const now = Date.now();
-  const cycle = Math.floor(now / CYCLE_MS);
-  const inCycle = now % CYCLE_MS;
+/* =========================================================
+   CITY 이미지: 밤/낮 모드에 따라 랜덤 교체
+   ========================================================= */
+function setCityByMode(mode){
+  const src = (mode === "DAY") ? rand(cityDayImages) : rand(cityNightImages);
+  cityImg.src = src;
+  // 정지 화면이 깔끔하게 중앙에 오도록 기본값으로 리셋
+  cityImg.style.transform = "translateX(-50%) scale(1.1)";
+}
 
-  // ✅ 이번 사이클에서 내가 쓰는 슬롯(0~3)이 매번 바뀜
-  const mySlot = getMySlotIndex(cycle);
+/* =========================================================
+   UI phase
+   ========================================================= */
+function setUIForPhase(){
+  if(phase === "CITY"){
+    zombieImg.style.display = "none";
+    puzzleImg.style.display = "none";
+    timerEl.style.display = "none";
+    answerRow.style.display = "none";
+  }else if(phase === "ZOMBIE"){
+    zombieImg.style.display = "block";
+    puzzleImg.style.display = "none";
+    timerEl.style.display = "none";
+    answerRow.style.display = "none";
+  }else if(phase === "PUZZLE"){
+    zombieImg.style.display = "block";
+    puzzleImg.style.display = "block";
+    timerEl.style.display = "block";
+    answerRow.style.display = "block";
+  }else{
+    zombieImg.style.display = "block";
+    puzzleImg.style.display = "block";
+    timerEl.style.display = "none";
+    answerRow.style.display = "none";
+  }
+}
 
-  // ✅ 이번 사이클에서 내 슬롯 시작 위치(고정 값이 아니라 cycle마다 달라짐)
+/* =========================================================
+   CITY 흔들림
+   ========================================================= */
+function startCityMotion(){
+  if(cityRafId) cancelAnimationFrame(cityRafId);
+  cityT0 = performance.now();
+  const loop = (t)=>{
+    if(phase !== "CITY" || !isGameActive()) return;
+    const x = Math.sin((t-cityT0)/1000*0.6)*30;
+    cityImg.style.transform = `translateX(calc(-50% + ${x}px)) scale(1.1)`;
+    cityRafId = requestAnimationFrame(loop);
+  };
+  if(phase === "CITY" && isGameActive()){
+    cityRafId = requestAnimationFrame(loop);
+  }
+}
+function stopCityMotion(){
+  if(cityRafId) cancelAnimationFrame(cityRafId);
+  cityRafId = null;
+}
+
+/* =========================================================
+   좀비 스케줄(게임시간 기준)
+   ========================================================= */
+function computeNextZombieAt(){
+  if(!isGameActive()) return null;
+
+  const cycleIndex = Math.floor(gameNowMs / CYCLE_MS);
+  const inCycle = ((gameNowMs % CYCLE_MS) + CYCLE_MS) % CYCLE_MS;
+
+  const mySlot = getMySlotIndex(cycleIndex);
   const SLOT_START_MS = mySlot * (SLOT_MS + GUARD_MS);
 
-  const r = seededRandom01(cycle);
-  const target = SLOT_START_MS + GUARD_MS + r * (SLOT_MS - GUARD_MS * 2);
+  const r = seededRandom01(cycleIndex);
+  const target = SLOT_START_MS + GUARD_MS + r * (SLOT_MS - GUARD_MS*2);
 
   let wait = target - inCycle;
   if(wait < 0) wait += CYCLE_MS;
 
-  setTimeout(()=>{ if(phase==="CITY") showZombie(); }, wait);
+  return gameNowMs + wait;
 }
+
 /* =========================================================
- * ✅ 타이밍(사이클/슬롯)만 수정한 부분 끝
- * ========================================================= */
-
-/* ---------- CITY ---------- */
-function startCity(){
+   상태 전환
+   ========================================================= */
+function enterCity(){
   phase = "CITY";
-  zombieImg.style.display = "none";
-  puzzleImg.style.display = "none";
-  timerEl.style.display = "none";
-  answerRow.style.display = "none";
+  setUIForPhase();
 
-  if(!audioReady){
-    warmUp(groanEl, groanSounds[0]);
-    warmUp(scratchEl, "static/scratch.mp3");
-    warmUp(gunshot, "static/gunshot.mp3");
-    audioReady = true;
-  }
+  // 현재 사이클 모드에 따라 city 이미지 선택
+  setCityByMode(cycleMode);
 
-  cityImg.src = rand(cityImages);
+  zombiePendingAt = computeNextZombieAt();
+  zombieShownAt = null;
+  puzzleShownAt = null;
+  puzzleLeftMs = 0;
 
-  const t0 = performance.now();
-  function move(t){
-    if(phase!=="CITY") return;
-    const x = Math.sin((t-t0)/1000*0.6)*30;
-    cityImg.style.transform = `translateX(calc(-50% + ${x}px)) scale(1.1)`;
-    rafId = requestAnimationFrame(move);
-  }
-  rafId = requestAnimationFrame(move);
-
-  scheduleZombie();
+  if(isGameActive()) startCityMotion();
+  else stopCityMotion();
 }
 
-/* ---------- ZOMBIE ---------- */
-function showZombie(){
+function forceDayCityFreeze(){
+  // ✅ 낮 전환 순간: 퍼즐/좀비 떠 있어도 CITY(낮 이미지)로 강제 복귀
+  phase = "CITY";
+  setUIForPhase();
+  setCityByMode("DAY");
+
+  // 예약/중간값 정리(낮에는 어차피 진행 안 함)
+  zombiePendingAt = null;
+  zombieShownAt = null;
+  puzzleShownAt = null;
+  puzzleLeftMs = 0;
+  resultUntilMs = null;
+
+  stopCityMotion();
+}
+
+function enterZombie(){
   phase = "ZOMBIE";
-  if(rafId) cancelAnimationFrame(rafId);
+  setUIForPhase();
+  stopCityMotion();
 
   zombieImg.src = rand(zombieImages);
   zombieImg.style.display = "block";
 
-  /* ✅ 랜덤 groan 사운드 */
   playSound(groanEl, rand(groanSounds));
 
-  setTimeout(startPuzzle, 2000);
+  zombieShownAt = gameNowMs;
+  puzzleShownAt = null;
 }
 
-/* ---------- PUZZLE ---------- */
-function startPuzzle(){
+function enterPuzzle(){
   phase = "PUZZLE";
-  if(puzzleIndex >= puzzles.length) puzzleIndex = 0;
+  setUIForPhase();
+
+  let ni = nextUnsolvedIndex(puzzleIndex);
+  if(ni === -1){
+    resetSolvedAll();
+    ni = nextUnsolvedIndex(0);
+    puzzleIndex = (ni === -1 ? 0 : ni);
+  }else{
+    puzzleIndex = ni;
+  }
 
   const p = puzzles[puzzleIndex];
   puzzleImg.src = p.img;
   puzzleImg.style.display = "block";
 
-  timerEl.style.display = "block";
-  answerRow.style.display = "block";
+  puzzleLeftMs = PUZZLE_LIMIT_MS;
+  updatePuzzleTimerUI();
+
   answerInput.value = "";
   answerInput.focus();
 
-  let left = 20;
-  timerEl.textContent = left;
+  puzzleShownAt = gameNowMs;
+}
 
-  countdownId = setInterval(()=>{
-    left--;
-    timerEl.textContent = left;
-    if(left<=0){
-      clearInterval(countdownId);
-      fail();
+function enterResult(imgSrc, soundType){
+  phase = "RESULT";
+  setUIForPhase();
+  puzzleImg.src = imgSrc;
+
+  if(soundType === "SUCCESS"){
+    try{ groanEl.pause(); groanEl.currentTime = 0; }catch(e){}
+    playSound(gunshotEl);
+  }else if(soundType === "FAIL"){
+    playSound(scratchEl);
+  }
+}
+
+/* =========================================================
+   퍼즐 타이머 표시
+   ========================================================= */
+function updatePuzzleTimerUI(){
+  const sec = Math.ceil(puzzleLeftMs / 1000);
+  timerEl.textContent = String(clamp(sec,0,999));
+}
+
+/* =========================================================
+   정답 처리
+   ========================================================= */
+function doSuccess(){
+  puzzles[puzzleIndex].solved = true;
+
+  enterResult("static/success.png", "SUCCESS");
+  puzzleIndex = (puzzleIndex + 1) % puzzles.length;
+
+  resultUntilMs = gameNowMs + 3000;
+}
+function doFail(){
+  enterResult("static/fail.png", "FAIL");
+  puzzleIndex = (puzzleIndex + 1) % puzzles.length;
+
+  resultUntilMs = gameNowMs + 3000;
+}
+
+/* =========================================================
+   스냅샷(되감기용)
+   ========================================================= */
+const SNAP_INTERVAL_MS = 500;
+const MAX_HISTORY_MS = 60000;
+let lastSnapAt = 0;
+let history = [];
+
+function captureState(){
+  return {
+    phase,
+    puzzleIndex,
+    puzzlesSolved: puzzles.map(p => !!p.solved),
+
+    citySrc: cityImg.getAttribute("src") || "",
+    zombieSrc: zombieImg.getAttribute("src") || "",
+    puzzleSrc: puzzleImg.getAttribute("src") || "",
+
+    cityTransform: cityImg.style.transform || "translateX(-50%) scale(1.1)",
+
+    zombiePendingAt,
+    zombieShownAt,
+    puzzleShownAt,
+
+    puzzleLeftMs,
+    resultUntilMs,
+
+    cycleRemainingMs,
+    cycleMode,
+
+    zombieDisplay: zombieImg.style.display,
+    puzzleDisplay: puzzleImg.style.display,
+    timerDisplay: timerEl.style.display,
+    answerDisplay: answerRow.style.display,
+    timerText: timerEl.textContent || ""
+  };
+}
+
+function restoreState(s){
+  phase = s.phase;
+  puzzleIndex = s.puzzleIndex;
+
+  puzzles.forEach((p,i)=> p.solved = !!s.puzzlesSolved[i]);
+
+  if(s.citySrc) cityImg.src = s.citySrc;
+  if(s.zombieSrc) zombieImg.src = s.zombieSrc;
+  if(s.puzzleSrc) puzzleImg.src = s.puzzleSrc;
+
+  cityImg.style.transform = s.cityTransform || "translateX(-50%) scale(1.1)";
+
+  zombiePendingAt = s.zombiePendingAt;
+  zombieShownAt = s.zombieShownAt;
+  puzzleShownAt = s.puzzleShownAt;
+
+  puzzleLeftMs = s.puzzleLeftMs;
+  resultUntilMs = s.resultUntilMs;
+
+  cycleRemainingMs = s.cycleRemainingMs;
+  cycleMode = s.cycleMode;
+
+  setUIForPhase();
+  zombieImg.style.display = s.zombieDisplay || zombieImg.style.display;
+  puzzleImg.style.display = s.puzzleDisplay || puzzleImg.style.display;
+  timerEl.style.display = s.timerDisplay || timerEl.style.display;
+  answerRow.style.display = s.answerDisplay || answerRow.style.display;
+  timerEl.textContent = s.timerText || timerEl.textContent;
+
+  updateCycleUI();
+
+  if(phase === "CITY" && isGameActive()) startCityMotion();
+  else stopCityMotion();
+}
+
+function pushSnapshot(){
+  history.push({ t: gameNowMs, state: captureState() });
+
+  const cutoff = gameNowMs - MAX_HISTORY_MS;
+  while(history.length && history[0].t < cutoff) history.shift();
+}
+
+function findSnapshotAtOrBefore(target){
+  if(history.length === 0) return null;
+  for(let i = history.length - 1; i >= 0; i--){
+    if(history[i].t <= target) return history[i];
+  }
+  return history[0];
+}
+
+/* =========================================================
+   메인 루프
+   ========================================================= */
+function tick(perfTs){
+  if(!running){
+    lastPerfTs = perfTs;
+    requestAnimationFrame(tick);
+    return;
+  }
+
+  if(!lastPerfTs) lastPerfTs = perfTs;
+  const realDt = perfTs - lastPerfTs;
+  lastPerfTs = perfTs;
+
+  const dt = realDt * timeScale;
+
+  // 되감기
+  if(timeScale < 0){
+    const newT = gameNowMs + dt;
+    gameNowMs = Math.max(0, newT);
+
+    const snap = findSnapshotAtOrBefore(gameNowMs);
+    if(snap) restoreState(snap.state);
+
+    requestAnimationFrame(tick);
+    return;
+  }
+
+  // 정방향
+  gameNowMs += dt;
+
+  // 2분 사이클(밤/낮)
+  cycleRemainingMs -= dt;
+  if(cycleRemainingMs <= 0){
+    while(cycleRemainingMs <= 0) cycleRemainingMs += CYCLE_LEN_MS;
+
+    // 전환
+    if(cycleMode === "NIGHT"){
+      cycleMode = "DAY";
+      updateCycleUI();
+
+      // ✅ 낮 전환: 강제 CITY(낮 배경) 고정
+      forceDayCityFreeze();
+
+    }else{
+      cycleMode = "NIGHT";
+      updateCycleUI();
+
+      // ✅ 밤 전환: 밤 배경으로 바꾸고(현재 CITY라면 흔들림 재개)
+      setCityByMode("NIGHT");
+      if(phase === "CITY") startCityMotion();
+      if(phase === "CITY") zombiePendingAt = computeNextZombieAt();
     }
-  },1000);
+  }else{
+    updateCycleUI();
+  }
+
+  // DAY면 진행 멈춤
+  if(!isGameActive()){
+    if(gameNowMs - lastSnapAt >= SNAP_INTERVAL_MS){
+      pushSnapshot();
+      lastSnapAt = gameNowMs;
+    }
+    requestAnimationFrame(tick);
+    return;
+  }
+
+  // CITY
+  if(phase === "CITY"){
+    if(zombiePendingAt == null) zombiePendingAt = computeNextZombieAt();
+    if(zombiePendingAt != null && gameNowMs >= zombiePendingAt){
+      enterZombie();
+    }
+  }
+
+  // ZOMBIE: 2초 후 퍼즐
+  if(phase === "ZOMBIE"){
+    if(zombieShownAt != null && gameNowMs - zombieShownAt >= 2000){
+      enterPuzzle();
+    }
+  }
+
+  // PUZZLE: 카운트다운
+  if(phase === "PUZZLE"){
+    puzzleLeftMs -= dt;
+    puzzleLeftMs = Math.max(0, puzzleLeftMs);
+    updatePuzzleTimerUI();
+
+    if(puzzleLeftMs <= 0){
+      doFail();
+    }
+  }
+
+  // RESULT: 3초 후 CITY 복귀(현재 cycleMode에 맞는 배경으로)
+  if(phase === "RESULT"){
+    if(resultUntilMs != null && gameNowMs >= resultUntilMs){
+      resultUntilMs = null;
+      enterCity();
+    }
+  }
+
+  // 스냅샷
+  if(gameNowMs - lastSnapAt >= SNAP_INTERVAL_MS){
+    pushSnapshot();
+    lastSnapAt = gameNowMs;
+  }
+
+  requestAnimationFrame(tick);
 }
 
-/* ---------- 결과 ---------- */
-function success(){
-  phase = "RESULT";
-  clearInterval(countdownId);
-  puzzleImg.src = "static/success.png";
-  playSound(gunshot);    // ✅ 성공 효과음
-  puzzleIndex++;
-  setTimeout(startCity,3000);
-}
-
-function fail(){
-  phase = "RESULT";
-  clearInterval(countdownId);
-  puzzleImg.src = "static/fail.png";
-  playSound(scratchEl);
-  puzzleIndex++;
-  setTimeout(startCity,3000);
-}
-
-/* ---------- 입력 ---------- */
-answerInput.addEventListener("input",()=>{
+/* =========================================================
+   입력
+   ========================================================= */
+answerInput.addEventListener("input", ()=>{
   answerInput.value = answerInput.value.toUpperCase();
 });
-answerInput.addEventListener("keydown",(e)=>{
-  if(e.key==="Enter"){
-    const p = puzzles[puzzleIndex];
-    if(answerInput.value.trim()===p.answer) success();
-    else fail();
-  }
+
+answerInput.addEventListener("keydown", (e)=>{
+  if(e.key !== "Enter") return;
+  if(phase !== "PUZZLE") return;
+
+  const p = puzzles[puzzleIndex];
+
+  const raw = (answerInput.value || "").trim();
+  const u1 = raw.toUpperCase();
+  const u2 = ko2enQwerty(raw).toUpperCase();
+
+  if(u1 === p.answer || u2 === p.answer) doSuccess();
+  else doFail();
 });
 
-/* ---------- 시작 ---------- */
-startCity();
+/* =========================================================
+   컨트롤
+   ========================================================= */
+let audioReady = false;
+
+function hardResetGame(){
+  phase = "CITY";
+  puzzleIndex = 0;
+  resetSolvedAll();
+
+  zombiePendingAt = null;
+  zombieShownAt = null;
+  puzzleShownAt = null;
+
+  puzzleLeftMs = 0;
+  resultUntilMs = null;
+
+  // 2분 사이클: 밤부터
+  cycleMode = "NIGHT";
+  cycleRemainingMs = CYCLE_LEN_MS;
+  updateCycleUI();
+
+  gameNowMs = 0;
+  history = [];
+  lastSnapAt = 0;
+
+  enterCity();
+  pushSnapshot();
+  lastSnapAt = gameNowMs;
+}
+
+function show(id){
+  if(id === "restart"){
+    if(!audioReady){
+      warmUp(groanEl, groanSounds[0]);
+      warmUp(scratchEl, "static/scratch.mp3");
+      warmUp(gunshotEl, "static/gunshot.mp3");
+      audioReady = true;
+    }
+    timeScale = 1;
+    running = true;
+    lastPerfTs = 0;
+    hardResetGame();
+    return;
+  }
+
+  if(id === "toggle"){
+    // ✅ 멈추기
+    if(running){
+      running = false;
+      stopCityMotion();
+      return;
+    }
+
+    // ✅ 재개하기: 항상 정속(1배)로 복귀
+    timeScale = 1;
+    running = true;
+    lastPerfTs = 0;
+
+    if(phase === "CITY" && cycleMode === "NIGHT") startCityMotion();
+    return;
+  }
+
+  if(id === "ff"){
+    timeScale = 10;
+    running = true;
+    lastPerfTs = 0;
+    if(phase === "CITY" && isGameActive()) startCityMotion();
+    return;
+  }
+
+  if(id === "rew"){
+    timeScale = -10;
+    running = true;
+    lastPerfTs = 0;
+    stopCityMotion();
+    return;
+  }
+}
+
+/* =========================================================
+   초기: 화면만 준비(자동 시작 X)
+   ========================================================= */
+updateCycleUI();
+enterCity();
+pushSnapshot();
+requestAnimationFrame(tick);
 </script>
 </body>
 </html>
