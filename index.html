@@ -60,6 +60,23 @@ body{
   pointer-events:none;
 }
 
+/* ✅ 메시지 오버레이(데미지 등) */
+.msg{
+  position:absolute;
+  inset:0;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  background:rgba(255,255,255,0.75);
+  font-weight:800;
+  font-size:34px;
+  z-index:6;
+  text-align:center;
+  padding:20px;
+  box-sizing:border-box;
+}
+.msg.show{ display:flex; }
+
 /* ✅ 퍼즐 UI */
 .ui{
   width:1024px;
@@ -83,7 +100,7 @@ input{
   text-align:center;
 }
 
-/* ✅ 상단 컨트롤: [다시시작] [02:00 + 밤/낮] [▶/II][>>][<<] */
+/* ✅ 상단 컨트롤: [다시시작] [스톱워치 + 밤/낮] [▶/II][>>][정속][<<] */
 .controls{
   width:1024px;
   max-width:92vw;
@@ -106,16 +123,16 @@ input{
   padding:10px 12px;
   box-sizing:border-box;
 }
-#cycleClock{
+#stopwatch{
   font-family: ui-monospace, monospace;
   font-size:22px;
   letter-spacing:1px;
-  min-width:72px;
+  min-width:110px;
 }
-#cycleLabel{
+#modeLabel{
   font-weight:700;
   font-size:18px;
-  min-width:36px;
+  min-width:44px;
 }
 .ctrlRight{
   display:flex;
@@ -154,13 +171,15 @@ button:active{ transform: translateY(1px); }
     </div>
 
     <div class="ctrlMid">
-      <div id="cycleClock">02:00</div>
-      <div id="cycleLabel">밤</div>
+      <div id="stopwatch">00:00.00</div>
+      <div id="modeLabel">밤</div>
     </div>
 
     <div class="ctrlRight">
+      <!-- (유지) ▶/II = Tab과 동일하게 밤/낮 토글 -->
       <button onclick="show('toggle')">▶/ II</button>
       <button onclick="show('ff')">앞으로 빨리감기</button>
+      <button onclick="show('normal')">정속감기</button>
       <button onclick="show('rew')">뒤로 빨리감기</button>
     </div>
   </div>
@@ -169,6 +188,7 @@ button:active{ transform: translateY(1px); }
     <div class="layer"><img id="cityImg"></div>
     <div class="layer"><img id="zombieImg"></div>
     <div class="layer"><img id="puzzleImg"></div>
+    <div class="msg" id="msg"></div>
   </div>
 
   <div class="ui">
@@ -187,7 +207,11 @@ button:active{ transform: translateY(1px); }
   </div>
 
   <div class="note">
-    * 밤(진행) 2분 ↔ 낮(정지) 2분 반복. 낮 전환 순간 퍼즐/좀비가 떠 있어도 CITY(낮 배경)로 강제 복귀.
+    * 시작은 밤(재생) 상태.
+    <br>* <b>0</b>: (밤+CITY일 때만) 좀비 소환.
+    <br>* 좀비 뜨면 5초 카운트다운 → Space를 눌러야 퍼즐 진입(20초). 5초 초과 시 데미지.
+    <br>* <b>9</b>: 좀비/퍼즐/결과 중 “강제 취소” → 밤 CITY로 즉시 복귀 (해당 좀비/문제는 스킵되지 않음, 0을 누르면 다시 시작)
+    <br>* Tab: 밤(재생) ↔ 낮(정지) 수동 전환(낮으로 들어가면 CITY로 강제 복귀)
   </div>
 
   <!-- 오디오 -->
@@ -217,7 +241,6 @@ const puzzles = [
   { img:"static/puzzle4-7.png", answer:"3" }
 ];
 
-
 /* =========================================================
    DOM
    ========================================================= */
@@ -227,13 +250,14 @@ const puzzleImg = document.getElementById("puzzleImg");
 const timerEl = document.getElementById("timer");
 const answerRow = document.getElementById("answerRow");
 const answerInput = document.getElementById("answerInput");
+const msgEl = document.getElementById("msg");
 
 const groanEl = document.getElementById("groan");
 const scratchEl = document.getElementById("scratch");
 const gunshotEl = document.getElementById("gunshot");
 
-const cycleClockEl = document.getElementById("cycleClock");
-const cycleLabelEl = document.getElementById("cycleLabel");
+const stopwatchEl = document.getElementById("stopwatch");
+const modeLabelEl = document.getElementById("modeLabel");
 
 /* =========================================================
    유틸
@@ -262,6 +286,27 @@ function warmUp(el, src){
   }catch(e){}
 }
 function pad2(n){ return String(n).padStart(2,'0'); }
+function formatStopwatch(ms){
+  ms = Math.max(0, ms);
+  const totalCs = Math.floor(ms / 10);       // centiseconds
+  const cs = totalCs % 100;
+  const totalSec = Math.floor(totalCs / 100);
+  const s = totalSec % 60;
+  const m = Math.floor(totalSec / 60);
+  return `${pad2(m)}:${pad2(s)}.${pad2(cs)}`;
+}
+function showMsg(text){
+  msgEl.textContent = text;
+  msgEl.classList.add("show");
+}
+function hideMsg(){
+  msgEl.classList.remove("show");
+}
+function stopAllSfx(){
+  try{ groanEl.pause(); groanEl.currentTime = 0; }catch(e){}
+  try{ scratchEl.pause(); scratchEl.currentTime = 0; }catch(e){}
+  try{ gunshotEl.pause(); gunshotEl.currentTime = 0; }catch(e){}
+}
 
 /* 한글 자모로 들어와도 영어로 자동 변환 */
 function ko2enQwerty(s){
@@ -274,7 +319,7 @@ function ko2enQwerty(s){
 }
 
 /* =========================================================
-   게임 상태
+   상태
    ========================================================= */
 let phase = "CITY";           // CITY | ZOMBIE | PUZZLE | RESULT
 let puzzleIndex = 0;
@@ -282,146 +327,36 @@ let puzzleIndex = 0;
 let cityRafId = null;
 let cityT0 = 0;
 
-let zombiePendingAt = null;   // (게임시간 기준) 좀비 등장 예약
-let zombieShownAt = null;     // 좀비 표시 시작
-let puzzleShownAt = null;     // 퍼즐 표시 시작
+let zombieShownAt = null;
+
+let zombieWaitMs = 0;                 // ✅ 좀비 5초 대기
+const ZOMBIE_WAIT_LIMIT_MS = 5000;
 
 let puzzleLeftMs = 0;
 const PUZZLE_LIMIT_MS = 20000;
 
 let resultUntilMs = null;
 
-/* ✅ "현재 밤의 (step)에서 이미 한 번 쐈는지" 기록 */
-let lastStepFired = -1;
-
 /* =========================================================
-   2분 밤/낮 사이클 + 빨리감기/되감기
+   실행/정지 + 스케일 + 밤/낮(수동)
    ========================================================= */
-let running = false;
-let timeScale = 1;      // 1, 10, -10
+let running = true;      // ✅ 시작부터 엔진 구동
+let timeScale = 1;       // 1, 10, -10 (DAY에서는 0처럼 동작)
 let lastPerfTs = 0;
 let gameNowMs = 0;
 
-const CYCLE_LEN_MS = 120000;  // 2분
-let cycleRemainingMs = CYCLE_LEN_MS;
-let cycleMode = "NIGHT";      // NIGHT(진행) / DAY(정지)
-
-/* ✅ 밤 번호(1박,2박...) : "DAY->NIGHT 전환" 때마다 +1
-   - restart 시 0으로 초기화
-   - 각 밤마다 시퀀스가 달라지게 만드는 핵심 */
-let nightIndex = 0;
+let mode = "NIGHT";      // NIGHT(재생) / DAY(정지)
 
 function isGameActive(){
-  return running && cycleMode === "NIGHT" && timeScale !== 0;
+  return running && mode === "NIGHT" && timeScale !== 0;
 }
-
-function updateCycleUI(){
-  const sec = Math.ceil(cycleRemainingMs / 1000);
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  cycleClockEl.textContent = `${pad2(m)}:${pad2(s)}`;
-  cycleLabelEl.textContent = (cycleMode === "NIGHT") ? "밤" : "낮";
+function updateTopUI(){
+  stopwatchEl.textContent = formatStopwatch(gameNowMs);
+  modeLabelEl.textContent = (mode === "NIGHT") ? "밤" : "낮";
 }
 
 /* =========================================================
-   ✅ 새 스케줄: 밤(120초) 동안 0/20/40/60/80/100초에만 좀비 트리거
-   + "restart 직후" / "DAY->NIGHT 직후" 2초 안에 뜨게: STEP_GRACE_MS
-   ========================================================= */
-const NIGHT_LEN_MS     = 120000;
-const STEP_MS          = 20000;
-const STEPS_PER_NIGHT  = 6;
-const STEP_GRACE_MS    = 2000; // ✅ 슬롯 시작 후 2초까지는 그 슬롯로 인정
-
-const PAGE_ID = 4; // ✅ page1은 1 / page2는 2 / page3는 3 / page4는 4 로만 바꾸면 됨
-
-function rng32(seed){
-  seed = (seed * 1664525 + 1013904223) >>> 0;
-  return seed;
-}
-
-/* ✅ "밤마다" 6개(0/20/40/60/80/100)의 페이지 순서 생성 */
-function makeNightSequence(nIdx){
-  let seed = ((nIdx + 1) * 2654435761) >>> 0;
-  const seq = [];
-  let prev = -1;
-  for(let i=0;i<STEPS_PER_NIGHT;i++){
-    seed = rng32(seed);
-    let pick = (seed % 4) + 1;
-
-    // 뭉침 완화(연속 중복 한번 방지)
-    if(pick === prev){
-      seed = rng32(seed);
-      pick = (seed % 4) + 1;
-      if(pick === prev) pick = (prev % 4) + 1;
-    }
-    seq.push(pick);
-    prev = pick;
-  }
-  return seq;
-}
-
-/* ✅ 현재 NIGHT에서 "다음 좀비 트리거" 계산
-   - 핵심 수정:
-     1) triggerAt >= gameNowMs 로 바꿔서 "0초 슬롯"도 안 놓치게
-     2) 슬롯 시작 후 2초 grace 내면, 내 차례면 즉시(now)로 처리 */
-function computeNextZombieAt_fixedSteps(){
-  if(!isGameActive()) return null;
-
-  // NIGHT에서 이미 지난 시간(0~120000)
-  const nightElapsed = NIGHT_LEN_MS - cycleRemainingMs; // 0이면 막 시작한 밤
-  const nightStartMs = gameNowMs - nightElapsed;
-
-  const seq = makeNightSequence(nightIndex);
-
-  // ✅ "지금이 어느 스텝인지" (0~5)
-  const curStep = Math.floor(nightElapsed / STEP_MS);
-  if(curStep >= 0 && curStep < STEPS_PER_NIGHT){
-    const stepStart = curStep * STEP_MS;
-    const sinceStepStart = nightElapsed - stepStart;
-
-    // ✅ 슬롯 시작 후 2초 내 + 내 차례 + 아직 발사 안했으면 => 즉시 트리거
-    if(sinceStepStart <= STEP_GRACE_MS && seq[curStep] === PAGE_ID){
-      const key = nightIndex * 10 + curStep;
-      if(lastStepFired !== key){
-        lastStepFired = key;
-        return gameNowMs; // 즉시
-      }
-    }
-  }
-
-  // ✅ 다음 스텝부터 앞으로 훑어서 내 차례 찾기
-  let nextStep = Math.ceil(nightElapsed / STEP_MS);
-  if(nextStep < 0) nextStep = 0;
-
-  for(let s = nextStep; s < STEPS_PER_NIGHT; s++){
-    if(seq[s] === PAGE_ID){
-      const key = nightIndex * 10 + s;
-      if(lastStepFired === key) continue;
-
-      const triggerAt = nightStartMs + s * STEP_MS; // 0/20/40/...
-      if(triggerAt >= gameNowMs){
-        return triggerAt;
-      }
-    }
-  }
-
-  // 이번 밤에서 내 차례가 더 없으면 => "다음 밤"의 가장 빠른 내 차례
-  // (next night는 DAY 2분 지나고 NIGHT 시작이므로 여기선 예약만 해둠)
-  // 실제로는 DAY때 isGameActive가 false라 tick에서 바로 쓰지 않지만,
-  // NIGHT 들어오면 다시 computeNextZombieAt_fixedSteps()로 재계산됨.
-  const nextNightStart = nightStartMs + (NIGHT_LEN_MS + CYCLE_LEN_MS); // NIGHT(120s)+DAY(120s)=240s
-  const nextSeq = makeNightSequence(nightIndex + 1);
-
-  for(let s = 0; s < STEPS_PER_NIGHT; s++){
-    if(nextSeq[s] === PAGE_ID){
-      return nextNightStart + s * STEP_MS;
-    }
-  }
-  return nextNightStart;
-}
-
-/* =========================================================
-   퍼즐 solved 스킵(전부 맞추면 초기화 후 순환)
+   퍼즐 solved 스킵
    ========================================================= */
 function nextUnsolvedIndex(from){
   for(let k=0; k<puzzles.length; k++){
@@ -435,10 +370,10 @@ function resetSolvedAll(){
 }
 
 /* =========================================================
-   CITY 이미지: 밤/낮 모드에 따라 랜덤 교체
+   CITY 이미지: 밤/낮 모드에 따라
    ========================================================= */
-function setCityByMode(mode){
-  const src = (mode === "DAY") ? rand(cityDayImages) : rand(cityNightImages);
+function setCityByMode(m){
+  const src = (m === "DAY") ? rand(cityDayImages) : rand(cityNightImages);
   cityImg.src = src;
   cityImg.style.transform = "translateX(-50%) scale(1.1)";
 }
@@ -447,6 +382,8 @@ function setCityByMode(mode){
    UI phase
    ========================================================= */
 function setUIForPhase(){
+  hideMsg();
+
   if(phase === "CITY"){
     zombieImg.style.display = "none";
     puzzleImg.style.display = "none";
@@ -455,14 +392,14 @@ function setUIForPhase(){
   }else if(phase === "ZOMBIE"){
     zombieImg.style.display = "block";
     puzzleImg.style.display = "none";
-    timerEl.style.display = "none";
+    timerEl.style.display = "block";     // ✅ 5초 카운트다운 표시
     answerRow.style.display = "none";
   }else if(phase === "PUZZLE"){
     zombieImg.style.display = "block";
     puzzleImg.style.display = "block";
     timerEl.style.display = "block";
     answerRow.style.display = "block";
-  }else{
+  }else{ // RESULT
     zombieImg.style.display = "block";
     puzzleImg.style.display = "block";
     timerEl.style.display = "none";
@@ -498,32 +435,51 @@ function enterCity(){
   phase = "CITY";
   setUIForPhase();
 
-  setCityByMode(cycleMode);
+  setCityByMode(mode);
 
-  zombiePendingAt = computeNextZombieAt_fixedSteps();
   zombieShownAt = null;
-  puzzleShownAt = null;
+  zombieWaitMs = 0;
   puzzleLeftMs = 0;
+  resultUntilMs = null;
 
   if(isGameActive()) startCityMotion();
   else stopCityMotion();
 }
 
-function forceDayCityFreeze(){
+function forceDayFreeze(){
+  // ✅ Tab으로 DAY 들어가는 순간:
+  // 무조건 CITY 복귀 + 이벤트 취소(자동 스케줄도 없으니 이벤트만 정리)
+  mode = "DAY";
+  timeScale = 0;
+
+  // ✅ 이벤트 취소 + CITY 강제
+  cancelEncounterToCity({ keepModeNight:false }); // DAY로 갈 거라서 밤 강제 안 함
+  setCityByMode("DAY");
+  updateTopUI();
+}
+
+function resumeNightFromDay(){
+  mode = "NIGHT";
+  timeScale = 1;
+  setCityByMode("NIGHT");
+
+  // 낮에서 돌아오면 무조건 CITY 상태로 재개
   phase = "CITY";
   setUIForPhase();
-  setCityByMode("DAY");
-
-  zombiePendingAt = null;
   zombieShownAt = null;
-  puzzleShownAt = null;
+  zombieWaitMs = 0;
   puzzleLeftMs = 0;
   resultUntilMs = null;
 
-  stopCityMotion();
+  if(isGameActive()) startCityMotion();
+  updateTopUI();
 }
 
 function enterZombie(){
+  // ✅ 좀비는 이제 자동이 아니라 "0"으로만 들어온다.
+  if(!isGameActive()) return;
+  if(phase !== "CITY") return;
+
   phase = "ZOMBIE";
   setUIForPhase();
   stopCityMotion();
@@ -534,7 +490,10 @@ function enterZombie(){
   playSound(groanEl, rand(groanSounds));
 
   zombieShownAt = gameNowMs;
-  puzzleShownAt = null;
+
+  // ✅ 5초 카운트다운 시작
+  zombieWaitMs = ZOMBIE_WAIT_LIMIT_MS;
+  timerEl.textContent = "5";
 }
 
 function enterPuzzle(){
@@ -559,14 +518,14 @@ function enterPuzzle(){
 
   answerInput.value = "";
   answerInput.focus();
-
-  puzzleShownAt = gameNowMs;
 }
 
-function enterResult(imgSrc, soundType){
+function enterResult(imgSrc, soundType, msgText){
   phase = "RESULT";
   setUIForPhase();
   puzzleImg.src = imgSrc;
+
+  if(msgText) showMsg(msgText);
 
   if(soundType === "SUCCESS"){
     try{ groanEl.pause(); groanEl.currentTime = 0; }catch(e){}
@@ -574,6 +533,39 @@ function enterResult(imgSrc, soundType){
   }else if(soundType === "FAIL"){
     playSound(scratchEl);
   }
+}
+
+/* ✅ 9번: 지금 진행 중인 좀비/퍼즐/결과를 “취소”하고 CITY로 즉시 복귀
+   - puzzleIndex/solved 상태 변경 없음 (즉, 스킵되지 않음)
+   - 0을 다시 누르면 동일 흐름으로 다시 시작 가능 */
+function cancelEncounterToCity({ keepModeNight=true } = {}){
+  // 모드 강제(요구: 9 누르면 밤 배경)
+  if(keepModeNight){
+    mode = "NIGHT";
+    // DAY에서였다면 timeScale도 1로 복귀(밤으로 보이게)
+    if(timeScale === 0) timeScale = 1;
+  }
+
+  // 진행 이벤트 제거
+  zombieShownAt = null;
+  zombieWaitMs = 0;
+  puzzleLeftMs = 0;
+  resultUntilMs = null;
+
+  // 화면/오디오 정리
+  stopAllSfx();
+  answerInput.value = "";
+  hideMsg();
+
+  // CITY 복귀
+  phase = "CITY";
+  setUIForPhase();
+  setCityByMode(mode);
+
+  if(isGameActive()) startCityMotion();
+  else stopCityMotion();
+
+  updateTopUI();
 }
 
 /* =========================================================
@@ -589,21 +581,23 @@ function updatePuzzleTimerUI(){
    ========================================================= */
 function doSuccess(){
   puzzles[puzzleIndex].solved = true;
-
-  enterResult("static/success.png", "SUCCESS");
+  enterResult("static/success.png", "SUCCESS", "");
   puzzleIndex = (puzzleIndex + 1) % puzzles.length;
-
   resultUntilMs = gameNowMs + 3000;
 }
 function doFail(){
-  enterResult("static/fail.png", "FAIL");
+  enterResult("static/fail.png", "FAIL", "");
   puzzleIndex = (puzzleIndex + 1) % puzzles.length;
-
+  resultUntilMs = gameNowMs + 3000;
+}
+function doDamage(){
+  // 데미지: 메시지 + scratch
+  enterResult("static/fail.png", "FAIL", "데미지를 입었습니다.");
   resultUntilMs = gameNowMs + 3000;
 }
 
 /* =========================================================
-   스냅샷(되감기용)
+   스냅샷(되감기용) - 유지
    ========================================================= */
 const SNAP_INTERVAL_MS = 500;
 const MAX_HISTORY_MS = 60000;
@@ -622,24 +616,23 @@ function captureState(){
 
     cityTransform: cityImg.style.transform || "translateX(-50%) scale(1.1)",
 
-    zombiePendingAt,
     zombieShownAt,
-    puzzleShownAt,
+    zombieWaitMs,
 
     puzzleLeftMs,
     resultUntilMs,
 
-    cycleRemainingMs,
-    cycleMode,
-
-    nightIndex,
-    lastStepFired,
+    mode,
+    timeScale,
 
     zombieDisplay: zombieImg.style.display,
     puzzleDisplay: puzzleImg.style.display,
     timerDisplay: timerEl.style.display,
     answerDisplay: answerRow.style.display,
-    timerText: timerEl.textContent || ""
+    timerText: timerEl.textContent || "",
+
+    msgShown: msgEl.classList.contains("show"),
+    msgText: msgEl.textContent || ""
   };
 }
 
@@ -655,18 +648,14 @@ function restoreState(s){
 
   cityImg.style.transform = s.cityTransform || "translateX(-50%) scale(1.1)";
 
-  zombiePendingAt = s.zombiePendingAt;
   zombieShownAt = s.zombieShownAt;
-  puzzleShownAt = s.puzzleShownAt;
+  zombieWaitMs = s.zombieWaitMs;
 
   puzzleLeftMs = s.puzzleLeftMs;
   resultUntilMs = s.resultUntilMs;
 
-  cycleRemainingMs = s.cycleRemainingMs;
-  cycleMode = s.cycleMode;
-
-  nightIndex = s.nightIndex ?? nightIndex;
-  lastStepFired = s.lastStepFired ?? lastStepFired;
+  mode = s.mode;
+  timeScale = s.timeScale;
 
   setUIForPhase();
   zombieImg.style.display = s.zombieDisplay || zombieImg.style.display;
@@ -675,8 +664,13 @@ function restoreState(s){
   answerRow.style.display = s.answerDisplay || answerRow.style.display;
   timerEl.textContent = s.timerText || timerEl.textContent;
 
-  updateCycleUI();
+  if(s.msgShown){
+    showMsg(s.msgText || "");
+  }else{
+    hideMsg();
+  }
 
+  updateTopUI();
   if(phase === "CITY" && isGameActive()) startCityMotion();
   else stopCityMotion();
 }
@@ -686,7 +680,6 @@ function pushSnapshot(){
   const cutoff = gameNowMs - MAX_HISTORY_MS;
   while(history.length && history[0].t < cutoff) history.shift();
 }
-
 function findSnapshotAtOrBefore(target){
   if(history.length === 0) return null;
   for(let i = history.length - 1; i >= 0; i--){
@@ -701,6 +694,7 @@ function findSnapshotAtOrBefore(target){
 function tick(perfTs){
   if(!running){
     lastPerfTs = perfTs;
+    updateTopUI();
     requestAnimationFrame(tick);
     return;
   }
@@ -709,52 +703,10 @@ function tick(perfTs){
   const realDt = perfTs - lastPerfTs;
   lastPerfTs = perfTs;
 
-  const dt = realDt * timeScale;
-
-  // 되감기
-  if(timeScale < 0){
-    const newT = gameNowMs + dt;
-    gameNowMs = Math.max(0, newT);
-
-    const snap = findSnapshotAtOrBefore(gameNowMs);
-    if(snap) restoreState(snap.state);
-
-    requestAnimationFrame(tick);
-    return;
-  }
-
-  // 정방향
-  gameNowMs += dt;
-
-  // 2분 사이클(밤/낮)
-  cycleRemainingMs -= dt;
-  if(cycleRemainingMs <= 0){
-    while(cycleRemainingMs <= 0) cycleRemainingMs += CYCLE_LEN_MS;
-
-    if(cycleMode === "NIGHT"){
-      // NIGHT -> DAY
-      cycleMode = "DAY";
-      updateCycleUI();
-      forceDayCityFreeze();
-    }else{
-      // DAY -> NIGHT
-      cycleMode = "NIGHT";
-      nightIndex += 1;                 // ✅ 밤 카운터 증가(중요)
-      lastStepFired = -1;              // ✅ 새 밤 시작이므로 발사기록 초기화(간단/안전)
-      updateCycleUI();
-
-      setCityByMode("NIGHT");
-      if(phase === "CITY") startCityMotion();
-
-      // ✅ "낮에서 밤으로 넘어오면 2초 안에"도 여기서 바로 계산(필요시 즉시 발사됨)
-      if(phase === "CITY") zombiePendingAt = computeNextZombieAt_fixedSteps();
-    }
-  }else{
-    updateCycleUI();
-  }
-
-  // DAY면 진행 멈춤
-  if(!isGameActive()){
+  // DAY면 시간 정지(스톱워치도 멈춤)
+  if(mode === "DAY"){
+    timeScale = 0;
+    updateTopUI();
     if(gameNowMs - lastSnapAt >= SNAP_INTERVAL_MS){
       pushSnapshot();
       lastSnapAt = gameNowMs;
@@ -763,23 +715,42 @@ function tick(perfTs){
     return;
   }
 
-  // CITY
-  if(phase === "CITY"){
-    if(zombiePendingAt == null) zombiePendingAt = computeNextZombieAt_fixedSteps();
-    if(zombiePendingAt != null && gameNowMs >= zombiePendingAt){
-      zombiePendingAt = null; // ✅ 중복 방지
-      enterZombie();
-    }
+  // NIGHT
+  const dt = realDt * timeScale;
+
+  // 되감기(-10)
+  if(timeScale < 0){
+    const newT = gameNowMs + dt;
+    gameNowMs = Math.max(0, newT);
+
+    const snap = findSnapshotAtOrBefore(gameNowMs);
+    if(snap) restoreState(snap.state);
+
+    updateTopUI();
+    requestAnimationFrame(tick);
+    return;
   }
 
-  // ZOMBIE: 2초 후 퍼즐(요구대로 유지)
+  // 정방향
+  gameNowMs += dt;
+  updateTopUI();
+
+  // ✅ 자동 좀비 스케줄 제거됨:
+  // CITY에서는 아무 이벤트도 자동으로 일어나지 않음.
+  // (0을 눌렀을 때만 enterZombie 호출)
+
+  // ZOMBIE: 5초 카운트다운(스페이스 누르면 퍼즐), 초과 시 데미지
   if(phase === "ZOMBIE"){
-    if(zombieShownAt != null && gameNowMs - zombieShownAt >= 2000){
-      enterPuzzle();
+    zombieWaitMs -= dt;
+    zombieWaitMs = Math.max(0, zombieWaitMs);
+    timerEl.textContent = String(Math.ceil(zombieWaitMs / 1000));
+
+    if(zombieWaitMs <= 0){
+      doDamage();
     }
   }
 
-  // PUZZLE: 카운트다운
+  // PUZZLE: 20초 카운트다운
   if(phase === "PUZZLE"){
     puzzleLeftMs -= dt;
     puzzleLeftMs = Math.max(0, puzzleLeftMs);
@@ -808,7 +779,7 @@ function tick(perfTs){
 }
 
 /* =========================================================
-   입력
+   입력 (정답, Space, Tab, 0, 9)
    ========================================================= */
 answerInput.addEventListener("input", ()=>{
   answerInput.value = answerInput.value.toUpperCase();
@@ -828,6 +799,43 @@ answerInput.addEventListener("keydown", (e)=>{
   else doFail();
 });
 
+// ✅ 전역 키 입력
+window.addEventListener("keydown", (e)=>{
+  // Tab = 밤/낮 토글(언제든)
+  if(e.key === "Tab"){
+    e.preventDefault();
+    show("toggle");
+    return;
+  }
+
+  // 0 = 좀비 소환(밤 + CITY일 때만)
+  if(e.key === "0"){
+    e.preventDefault();
+    if(isGameActive() && phase === "CITY"){
+      enterZombie();
+    }
+    return;
+  }
+
+  // 9 = 강제 취소(좀비/퍼즐/결과 중)
+  if(e.key === "9"){
+    if(phase === "ZOMBIE" || phase === "PUZZLE" || phase === "RESULT"){
+      e.preventDefault();
+      cancelEncounterToCity({ keepModeNight:true });
+    }
+    return;
+  }
+
+  // Space = ZOMBIE에서 퍼즐 진입
+  if(e.code === "Space"){
+    if(phase === "ZOMBIE" && isGameActive()){
+      e.preventDefault();
+      enterPuzzle();
+      return;
+    }
+  }
+});
+
 /* =========================================================
    컨트롤
    ========================================================= */
@@ -838,29 +846,24 @@ function hardResetGame(){
   puzzleIndex = 0;
   resetSolvedAll();
 
-  zombiePendingAt = null;
   zombieShownAt = null;
-  puzzleShownAt = null;
+  zombieWaitMs = 0;
 
   puzzleLeftMs = 0;
   resultUntilMs = null;
 
-  // 2분 사이클: 밤부터
-  cycleMode = "NIGHT";
-  cycleRemainingMs = CYCLE_LEN_MS;
-  updateCycleUI();
-
-  // ✅ restart 시 밤번호 0부터 (여기서 바로 0초 슬롯을 "2초 grace"로 잡음)
-  nightIndex = 0;
-  lastStepFired = -1;
+  // 시작은 밤(재생)
+  mode = "NIGHT";
+  timeScale = 1;
 
   gameNowMs = 0;
   history = [];
   lastSnapAt = 0;
 
-  enterCity(); // enterCity 내부에서 computeNextZombieAt_fixedSteps() 수행(즉시 트리거 가능)
+  enterCity();
   pushSnapshot();
   lastSnapAt = gameNowMs;
+  updateTopUI();
 }
 
 function show(id){
@@ -871,7 +874,6 @@ function show(id){
       warmUp(gunshotEl, "static/gunshot.mp3");
       audioReady = true;
     }
-    timeScale = 1;
     running = true;
     lastPerfTs = 0;
     hardResetGame();
@@ -879,31 +881,41 @@ function show(id){
   }
 
   if(id === "toggle"){
-    // 멈추기
-    if(running){
-      running = false;
-      stopCityMotion();
+    // 밤/낮 토글
+    if(mode === "NIGHT"){
+      forceDayFreeze();
+      pushSnapshot();
+      lastSnapAt = gameNowMs;
+      return;
+    }else{
+      // DAY -> NIGHT 재개(정속)
+      lastPerfTs = 0;
+      resumeNightFromDay();
+      pushSnapshot();
+      lastSnapAt = gameNowMs;
       return;
     }
-    // 재개: 정속
-    timeScale = 1;
-    running = true;
-    lastPerfTs = 0;
-    if(phase === "CITY" && cycleMode === "NIGHT") startCityMotion();
-    return;
   }
 
   if(id === "ff"){
+    if(mode === "DAY") return;
     timeScale = 10;
-    running = true;
+    lastPerfTs = 0;
+    if(phase === "CITY" && isGameActive()) startCityMotion();
+    return;
+  }
+
+  if(id === "normal"){
+    if(mode === "DAY") return;
+    timeScale = 1;
     lastPerfTs = 0;
     if(phase === "CITY" && isGameActive()) startCityMotion();
     return;
   }
 
   if(id === "rew"){
+    if(mode === "DAY") return;
     timeScale = -10;
-    running = true;
     lastPerfTs = 0;
     stopCityMotion();
     return;
@@ -911,9 +923,9 @@ function show(id){
 }
 
 /* =========================================================
-   초기: 화면만 준비(자동 시작 X)
+   초기: 시작부터 밤(재생) CITY
    ========================================================= */
-updateCycleUI();
+updateTopUI();
 enterCity();
 pushSnapshot();
 requestAnimationFrame(tick);
