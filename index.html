@@ -228,7 +228,7 @@ button:active{ transform: translateY(1px); }
 const cityNightImages = Array.from({length:5},(_,i)=>`static/city${i+1}.png`);
 const cityDayImages   = Array.from({length:5},(_,i)=>`static/city-day${i+1}.png`);
 
-const zombieImages = Array.from({length:5},(_,i)=>`static/zombie${i+1}.png`);
+const zombieImages = Array.from({length:8},(_,i)=>`static/zombie${i+1}.png`);
 const groanSounds  = Array.from({length:9},(_,i)=>`static/groan${i+1}.mp3`);
 
 const puzzles = [
@@ -240,6 +240,7 @@ const puzzles = [
   { img:"static/puzzle4-6.png", answer:"4" },
   { img:"static/puzzle4-7.png", answer:"3" }
 ];
+
 
 /* =========================================================
    DOM
@@ -336,6 +337,14 @@ let puzzleLeftMs = 0;
 const PUZZLE_LIMIT_MS = 20000;
 
 let resultUntilMs = null;
+
+/* ✅ 이번에 뽑힌 좀비가 zombie6/7/8인지 체크용 */
+let currentZombieSrc = "";
+let isVanishZombie = false; // zombie6~8이면 true
+
+function computeIsVanishZombie(src){
+  return /zombie(6|7|8)\.png$/i.test(src || "");
+}
 
 /* =========================================================
    실행/정지 + 스케일 + 밤/낮(수동)
@@ -442,17 +451,18 @@ function enterCity(){
   puzzleLeftMs = 0;
   resultUntilMs = null;
 
+  // ✅ 좀비 특수 플래그 초기화
+  currentZombieSrc = "";
+  isVanishZombie = false;
+
   if(isGameActive()) startCityMotion();
   else stopCityMotion();
 }
 
 function forceDayFreeze(){
-  // ✅ Tab으로 DAY 들어가는 순간:
-  // 무조건 CITY 복귀 + 이벤트 취소(자동 스케줄도 없으니 이벤트만 정리)
   mode = "DAY";
   timeScale = 0;
 
-  // ✅ 이벤트 취소 + CITY 강제
   cancelEncounterToCity({ keepModeNight:false }); // DAY로 갈 거라서 밤 강제 안 함
   setCityByMode("DAY");
   updateTopUI();
@@ -463,13 +473,15 @@ function resumeNightFromDay(){
   timeScale = 1;
   setCityByMode("NIGHT");
 
-  // 낮에서 돌아오면 무조건 CITY 상태로 재개
   phase = "CITY";
   setUIForPhase();
   zombieShownAt = null;
   zombieWaitMs = 0;
   puzzleLeftMs = 0;
   resultUntilMs = null;
+
+  currentZombieSrc = "";
+  isVanishZombie = false;
 
   if(isGameActive()) startCityMotion();
   updateTopUI();
@@ -484,10 +496,17 @@ function enterZombie(){
   setUIForPhase();
   stopCityMotion();
 
-  zombieImg.src = rand(zombieImages);
+  // ✅ 이번 좀비 뽑기 + 특수 좀비(6~8) 여부 저장
+  currentZombieSrc = rand(zombieImages);
+  isVanishZombie = computeIsVanishZombie(currentZombieSrc);
+
+  zombieImg.src = currentZombieSrc;
   zombieImg.style.display = "block";
 
-  playSound(groanEl, rand(groanSounds));
+  // ✅ zombie6/7/8이면 "소리 없이" 5초 후 사라져야 하므로 groan 재생 안 함
+  if(!isVanishZombie){
+    playSound(groanEl, rand(groanSounds));
+  }
 
   zombieShownAt = gameNowMs;
 
@@ -535,29 +554,53 @@ function enterResult(imgSrc, soundType, msgText){
   }
 }
 
-/* ✅ 9번: 지금 진행 중인 좀비/퍼즐/결과를 “취소”하고 CITY로 즉시 복귀
-   - puzzleIndex/solved 상태 변경 없음 (즉, 스킵되지 않음)
-   - 0을 다시 누르면 동일 흐름으로 다시 시작 가능 */
-function cancelEncounterToCity({ keepModeNight=true } = {}){
-  // 모드 강제(요구: 9 누르면 밤 배경)
-  if(keepModeNight){
-    mode = "NIGHT";
-    // DAY에서였다면 timeScale도 1로 복귀(밤으로 보이게)
-    if(timeScale === 0) timeScale = 1;
-  }
+/* ✅ 특수 좀비(6/7/8) : 5초 지나면 아무 효과 없이 사라지고 CITY로 복귀 */
+function vanishZombieToCity(){
+  // 오디오도 "없어야" 하므로 전부 정지
+  stopAllSfx();
 
-  // 진행 이벤트 제거
+  // 진행 변수 초기화
   zombieShownAt = null;
   zombieWaitMs = 0;
   puzzleLeftMs = 0;
   resultUntilMs = null;
 
-  // 화면/오디오 정리
+  // 플래그 초기화
+  currentZombieSrc = "";
+  isVanishZombie = false;
+
+  // CITY 복귀(밤 유지)
+  phase = "CITY";
+  setUIForPhase();
+  setCityByMode(mode);
+  if(isGameActive()) startCityMotion();
+  else stopCityMotion();
+
+  updateTopUI();
+}
+
+/* ✅ 9번: 지금 진행 중인 좀비/퍼즐/결과를 “취소”하고 CITY로 즉시 복귀
+   - puzzleIndex/solved 상태 변경 없음 (즉, 스킵되지 않음)
+   - 0을 다시 누르면 동일 흐름으로 다시 시작 가능 */
+function cancelEncounterToCity({ keepModeNight=true } = {}){
+  if(keepModeNight){
+    mode = "NIGHT";
+    if(timeScale === 0) timeScale = 1;
+  }
+
+  zombieShownAt = null;
+  zombieWaitMs = 0;
+  puzzleLeftMs = 0;
+  resultUntilMs = null;
+
+  // ✅ 특수 좀비도 취소 시 플래그 초기화
+  currentZombieSrc = "";
+  isVanishZombie = false;
+
   stopAllSfx();
   answerInput.value = "";
   hideMsg();
 
-  // CITY 복귀
   phase = "CITY";
   setUIForPhase();
   setCityByMode(mode);
@@ -590,10 +633,25 @@ function doFail(){
   puzzleIndex = (puzzleIndex + 1) % puzzles.length;
   resultUntilMs = gameNowMs + 3000;
 }
+
+/* 기존 데미지: 일반 좀비에서만 사용 */
 function doDamage(){
-  // 데미지: 메시지 + scratch
-  enterResult("static/fail.png", "FAIL", "데미지를 입었습니다.");
+  enterResult("static/fail.png", "FAIL");
   resultUntilMs = gameNowMs + 3000;
+}
+
+/* ✅ 특수 좀비(6/7/8)에서 Space 누르면:
+   - 퍼즐 없이 즉시 오답 처리
+   - scratch.mp3 + fail2.png */
+function doInstantFailForVanishZombie(){
+  // 어떤 효과(sound.mp3, fail.png 등) 없이 "fail2"만
+  stopAllSfx();
+  enterResult("static/fail2.png", "FAIL", "");
+  // 다음 좀비/문제 스킵 안 한다는 요구와 충돌 방지:
+  // puzzleIndex/solved 건드리지 않음
+  resultUntilMs = gameNowMs + 20000;
+
+  // 특수 좀비 플래그는 결과 후 CITY로 돌아갈 때 enterCity에서 초기화됨
 }
 
 /* =========================================================
@@ -632,7 +690,11 @@ function captureState(){
     timerText: timerEl.textContent || "",
 
     msgShown: msgEl.classList.contains("show"),
-    msgText: msgEl.textContent || ""
+    msgText: msgEl.textContent || "",
+
+    // ✅ 추가: 특수 좀비 상태도 되감기에서 유지
+    currentZombieSrc,
+    isVanishZombie
   };
 }
 
@@ -656,6 +718,9 @@ function restoreState(s){
 
   mode = s.mode;
   timeScale = s.timeScale;
+
+  currentZombieSrc = s.currentZombieSrc || "";
+  isVanishZombie = !!s.isVanishZombie;
 
   setUIForPhase();
   zombieImg.style.display = s.zombieDisplay || zombieImg.style.display;
@@ -735,18 +800,20 @@ function tick(perfTs){
   gameNowMs += dt;
   updateTopUI();
 
-  // ✅ 자동 좀비 스케줄 제거됨:
-  // CITY에서는 아무 이벤트도 자동으로 일어나지 않음.
-  // (0을 눌렀을 때만 enterZombie 호출)
-
-  // ZOMBIE: 5초 카운트다운(스페이스 누르면 퍼즐), 초과 시 데미지
+  // ✅ ZOMBIE: 5초 카운트다운
   if(phase === "ZOMBIE"){
     zombieWaitMs -= dt;
     zombieWaitMs = Math.max(0, zombieWaitMs);
     timerEl.textContent = String(Math.ceil(zombieWaitMs / 1000));
 
     if(zombieWaitMs <= 0){
-      doDamage();
+      // ✅ zombie6/7/8이면 "아무 효과 없이" 사라짐
+      if(isVanishZombie){
+        vanishZombieToCity();
+      }else{
+        // 일반 좀비는 기존처럼 데미지
+        doDamage();
+      }
     }
   }
 
@@ -826,11 +893,19 @@ window.addEventListener("keydown", (e)=>{
     return;
   }
 
-  // Space = ZOMBIE에서 퍼즐 진입
+  // Space
   if(e.code === "Space"){
+    // ✅ ZOMBIE에서:
+    // - zombie6/7/8이면 퍼즐 없이 즉시 오답 처리(fail2)
+    // - 나머지는 기존처럼 퍼즐 진입
     if(phase === "ZOMBIE" && isGameActive()){
       e.preventDefault();
-      enterPuzzle();
+
+      if(isVanishZombie){
+        doInstantFailForVanishZombie();
+      }else{
+        enterPuzzle();
+      }
       return;
     }
   }
@@ -851,6 +926,9 @@ function hardResetGame(){
 
   puzzleLeftMs = 0;
   resultUntilMs = null;
+
+  currentZombieSrc = "";
+  isVanishZombie = false;
 
   // 시작은 밤(재생)
   mode = "NIGHT";
